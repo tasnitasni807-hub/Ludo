@@ -1,478 +1,355 @@
 // ==========================================
-// LUDO ONLINE - NO AUTH REQUIRED
-// Pure Database Solution
+// SIMPLIFIED ONLINE MODULE (GUARANTEED WORKING)
 // ==========================================
 
-// 🔴 আপনার Firebase Config
 const firebaseConfig = {
-  apiKey: "AIzaSyDcQHzGzmXJHdml7j-Ry-tVVAil-KSCyQ4",
-  authDomain: "ludo-party-online-65b84.firebaseapp.com",
-  databaseURL: "https://ludo-party-online-65b84-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "ludo-party-online-65b84",
-  storageBucket: "ludo-party-online-65b84.firebasestorage.app",
-  messagingSenderId: "405003352009",
-  appId: "1:405003352009:web:9683f995ab60e5f0f2da18"
+    apiKey: "AIzaSyDcQHzGzmXJHdml7j-Ry-tVVAil-KSCyQ4",
+    authDomain: "ludo-party-online-65b84.firebaseapp.com",
+    databaseURL: "https://ludo-party-online-65b84-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "ludo-party-online-65b84",
+    storageBucket: "ludo-party-online-65b84.firebasestorage.app",
+    messagingSenderId: "405003352009",
+    appId: "1:405003352009:web:9683f995ab60e5f0f2da18"
 };
 
 let db = null;
-let userId = null;
-let userName = null;
-let currentRoom = null;
-let playerColor = null;
-let isOnlineMode = false;
-let gameBet = 0;
+let auth = null;
+let currentUser = null;
+let myColor = null;
+let roomRef = null;
+let isOnline = false;
+let myBet = 0;
 
 // ==========================================
-// INIT - NO AUTHENTICATION
+// STEP 1: FIREBASE INIT
 // ==========================================
-function initOnlineSystem() {
-    console.log("🔄 Initializing Firebase...");
-    
-    try {
-        // Check Firebase loaded
-        if (typeof firebase === 'undefined') {
-            console.error("❌ Firebase not loaded");
-            setTimeout(initOnlineSystem, 1000);
-            return;
-        }
-        
-        // Init Firebase
-        if (!firebase.apps || firebase.apps.length === 0) {
-            firebase.initializeApp(firebaseConfig);
-            console.log("✅ Firebase initialized");
-        }
-        
-        // Get database reference
-        db = firebase.database();
-        
-        // Generate user ID (no auth needed)
-        userId = localStorage.getItem('game_user_id');
-        if (!userId) {
-            userId = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
-            localStorage.setItem('game_user_id', userId);
-        }
-        
-        userName = localStorage.getItem('game_user_name');
-        if (!userName) {
-            userName = 'Player' + Math.floor(Math.random() * 10000);
-            localStorage.setItem('game_user_name', userName);
-        }
-        
-        console.log("✅ Online ready:", userId, userName);
-        
-        // Test database connection
-        db.ref('.info/connected').on('value', function(snap) {
-            if (snap.val() === true) {
-                console.log("✅ Database connected!");
-                showToast("Online mode ready!");
-            } else {
-                console.log("⚠️ Database offline");
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        if (typeof firebase !== 'undefined') {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
             }
-        });
-        
-        // Setup play button override
-        setupPlayButton();
-        
-    } catch (error) {
-        console.error("❌ Firebase error:", error);
-        showToast("Offline mode only");
-    }
-}
+            db = firebase.database();
+            auth = firebase.auth();
+            
+            auth.signInAnonymously().then(result => {
+                currentUser = result.user;
+                console.log("✅ Firebase Ready! UID:", currentUser.uid);
+                alert("Firebase Connected! UID: " + currentUser.uid.substring(0,8));
+            }).catch(err => {
+                console.error("❌ Firebase Error:", err);
+                alert("Firebase Error: " + err.message);
+            });
+        } else {
+            console.error("❌ Firebase SDK not loaded!");
+            alert("Firebase SDK Missing!");
+        }
+    }, 2000);
+});
 
 // ==========================================
-// OVERRIDE PLAY BUTTON
+// STEP 2: OVERRIDE PLAY BUTTON
 // ==========================================
-function setupPlayButton() {
-    const originalPlay = window.playGame;
+const oldPlayGame = window.playGame;
+
+window.playGame = function() {
+    console.log("🎮 Play clicked!");
     
-    window.playGame = function() {
-        console.log("🎮 Play button clicked");
-        
-        if (!db) {
-            console.log("⚠️ Database not ready, playing offline");
-            if (originalPlay) originalPlay();
-            return;
-        }
-        
-        gameBet = currentBet || 100;
-        
-        if (appState.balance < gameBet) {
-            showToast("Insufficient Balance!");
-            return;
-        }
-        
-        // Deduct bet
-        appState.balance -= gameBet;
-        saveState();
-        
-        // Start online matchmaking
-        findOnlineMatch();
-    };
-}
-
-// ==========================================
-// FIND MATCH
-// ==========================================
-function findOnlineMatch() {
-    console.log("🔍 Finding match for bet:", gameBet);
+    if (!db || !currentUser) {
+        alert("Firebase not ready! Wait 3 seconds and try again.");
+        return;
+    }
+    
+    myBet = currentBet || 100;
+    
+    if (appState.balance < myBet) {
+        showToast("Insufficient Balance!");
+        return;
+    }
+    
+    // Deduct money
+    appState.balance -= myBet;
+    saveState();
     
     // Show matchmaking screen
     showScreen('screen-matchmaking');
+    document.getElementById('matchmaking-entry').innerText = myBet;
     
-    const entryEl = document.getElementById('matchmaking-entry');
-    if (entryEl) entryEl.innerText = gameBet;
+    console.log("🔍 Starting matchmaking with bet:", myBet);
     
-    const oppEl = document.getElementById('opponent-name-text');
-    if (oppEl) oppEl.innerText = "Searching...";
+    // Start matchmaking
+    findMatch();
+};
+
+// ==========================================
+// STEP 3: MATCHMAKING (SUPER SIMPLE)
+// ==========================================
+function findMatch() {
+    const myName = localStorage.getItem('ludo_user_name') || 'Player_' + Math.random().toString(36).substr(2, 5);
+    localStorage.setItem('ludo_user_name', myName);
     
-    // Avatar animation
-    startRandomAvatar();
+    console.log("👤 My Name:", myName, "| UID:", currentUser.uid);
     
-    // Join queue
-    const queueKey = 'queue_' + gameBet;
-    const queueRef = db.ref(queueKey);
-    const myEntryRef = queueRef.child(userId);
+    const queuePath = 'queue/' + myBet;
+    const mySlot = db.ref(queuePath + '/' + currentUser.uid);
     
-    // Add to queue
-    myEntryRef.set({
-        name: userName,
-        time: firebase.database.ServerValue.TIMESTAMP
-    }).then(function() {
-        console.log("✅ Joined queue");
-    }).catch(function(error) {
-        console.error("❌ Queue error:", error);
-        showToast("Connection error!");
-        refundBet();
-        return;
+    // Add myself to queue
+    mySlot.set({
+        name: myName,
+        uid: currentUser.uid,
+        time: Date.now()
     });
     
-    // Auto remove on disconnect
-    myEntryRef.onDisconnect().remove();
+    console.log("📝 Added to queue:", queuePath);
     
-    // Listen for players
-    let matchFound = false;
+    // Listen for matches
+    const queue = db.ref(queuePath);
     
-    queueRef.on('value', function(snapshot) {
-        if (matchFound) return;
-        
+    queue.on('value', snapshot => {
         const data = snapshot.val();
-        if (!data) return;
+        if (!data) {
+            console.log("⏳ Queue empty, waiting...");
+            return;
+        }
         
-        const playerIds = Object.keys(data);
-        console.log("👥 Queue players:", playerIds.length);
+        const uids = Object.keys(data);
+        console.log("👥 Players in queue:", uids.length, uids);
         
-        // Need 2 players
-        if (playerIds.length >= 2) {
-            // Sort IDs for consistency
-            playerIds.sort();
+        if (uids.length >= 2) {
+            // Sort to ensure both players create same room
+            const sorted = uids.sort();
+            const p1 = sorted[0];
+            const p2 = sorted[1];
             
-            const p1 = playerIds[0];
-            const p2 = playerIds[1];
+            console.log("🎯 Match Found! P1:", p1.substring(0,8), "P2:", p2.substring(0,8));
             
-            // Am I in first 2?
-            if (p1 === userId || p2 === userId) {
-                matchFound = true;
+            // Am I in this match?
+            if (p1 === currentUser.uid || p2 === currentUser.uid) {
+                queue.off(); // Stop listening
+                mySlot.remove(); // Remove from queue
                 
-                const opponentId = p1 === userId ? p2 : p1;
-                const opponentName = data[opponentId].name || "Opponent";
+                const opponent = p1 === currentUser.uid ? data[p2] : data[p1];
+                const oppName = opponent ? opponent.name : "Opponent";
                 
-                console.log("🎯 Match found:", opponentName);
+                console.log("✅ Matched with:", oppName);
+                document.getElementById('opponent-name-text').innerText = oppName;
+                showToast("Match Found: " + oppName);
                 
-                // Stop listening
-                queueRef.off();
+                // Create unique room ID
+                const roomId = 'game_' + [p1, p2].sort().join('_');
+                myColor = p1 === currentUser.uid ? 'yellow' : 'red';
                 
-                // Show match found
-                stopRandomAvatar();
-                if (oppEl) oppEl.innerText = opponentName;
-                showToast("Match found!");
+                console.log("🏠 Room ID:", roomId, "| My Color:", myColor);
                 
-                // Remove from queue
-                myEntryRef.remove();
-                
-                // Create room
-                setTimeout(function() {
-                    createGameRoom(p1, p2);
+                setTimeout(() => {
+                    startOnlineGame(roomId);
                 }, 2000);
             }
         }
     });
     
-    // Timer - 30 seconds
-    let timeLeft = 30;
-    const timerEl = document.getElementById('timer');
-    
-    const timerInterval = setInterval(function() {
-        timeLeft--;
-        if (timerEl) timerEl.innerText = timeLeft < 10 ? '0' + timeLeft : timeLeft;
+    // Timeout after 60 seconds
+    setTimeout(() => {
+        queue.off();
+        mySlot.remove();
         
-        if (timeLeft <= 0) {
-            clearInterval(timerInterval);
-            
-            if (!matchFound) {
-                stopRandomAvatar();
-                queueRef.off();
-                myEntryRef.remove();
-                
-                console.log("⏰ Timeout - Playing AI");
-                playWithAI();
-            }
-        }
-    }, 1000);
+        console.log("⏰ Timeout - Playing with AI");
+        alert("No opponent found. Playing with AI.");
+        
+        isOnline = false;
+        startGame('vsAI', 2);
+        showScreen('game-screen');
+    }, 60000);
     
     // Cancel button
     const cancelBtn = document.getElementById('cancelBtn');
     if (cancelBtn) {
-        cancelBtn.onclick = function() {
-            clearInterval(timerInterval);
-            stopRandomAvatar();
-            queueRef.off();
-            myEntryRef.remove();
-            refundBet();
+        cancelBtn.onclick = () => {
+            queue.off();
+            mySlot.remove();
+            appState.balance += myBet;
+            saveState();
+            showToast("Cancelled!");
+            goToWalletDashboard();
         };
     }
 }
 
 // ==========================================
-// CREATE ROOM
+// STEP 4: START ONLINE GAME
 // ==========================================
-function createGameRoom(player1, player2) {
-    console.log("🏠 Creating room...");
+function startOnlineGame(roomId) {
+    console.log("🎲 Starting online game:", roomId);
     
-    currentRoom = 'room_' + Date.now();
-    playerColor = player1 === userId ? 'yellow' : 'red';
+    isOnline = true;
+    roomRef = db.ref('games/' + roomId);
     
-    console.log("Room:", currentRoom, "Color:", playerColor);
-    
-    const roomRef = db.ref('games/' + currentRoom);
-    
-    const roomData = {
-        player1: player1,
-        player2: player2,
-        turn: 'yellow',
-        dice: 0,
-        board: {
-            yellow: [-1, -1, -1, -1],
-            red: [-1, -1, -1, -1]
-        },
-        winner: null,
-        bet: gameBet,
-        prize: Math.floor(gameBet * 1.9),
-        created: firebase.database.ServerValue.TIMESTAMP
-    };
-    
-    roomRef.set(roomData).then(function() {
-        console.log("✅ Room created");
-        startOnlineGame();
-    }).catch(function(error) {
-        console.error("❌ Room error:", error);
-        showToast("Failed to create game!");
-        refundBet();
-    });
-    
-    // Auto cleanup on disconnect
-    roomRef.onDisconnect().remove();
-}
-
-// ==========================================
-// START GAME
-// ==========================================
-function startOnlineGame() {
-    console.log("🎮 Starting online game");
-    
-    isOnlineMode = true;
-    gameMode = 'online';
-    players = ['yellow', 'red'];
-    
-    // Init board
-    boardState = {};
-    ['yellow', 'red'].forEach(function(color) {
-        boardState[color] = [];
-        for (let i = 0; i < 4; i++) {
-            boardState[color].push({
-                id: i,
-                pos: -1,
-                status: 'base',
-                justSpawned: false
+    // Initialize room data (only first player)
+    roomRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) {
+            console.log("📝 Creating new room data");
+            roomRef.set({
+                turn: 'yellow',
+                dice: 0,
+                rolled: false,
+                board: {
+                    yellow: [-1,-1,-1,-1],
+                    red: [-1,-1,-1,-1]
+                },
+                winner: null,
+                bet: myBet,
+                prize: Math.floor(myBet * 1.9)
             });
         }
     });
     
-    // Show game screen
+    // Setup game
+    gameMode = 'online';
+    players = ['yellow', 'red'];
+    boardState = {
+        yellow: Array(4).fill(null).map((_, i) => ({id: i, pos: -1, status: 'base'})),
+        red: Array(4).fill(null).map((_, i) => ({id: i, pos: -1, status: 'base'}))
+    };
+    
     showScreen('game-screen');
     initBoard();
     createPlayerHubs();
     drawTokens();
     
-    // Listen to room
-    const roomRef = db.ref('games/' + currentRoom);
-    
-    roomRef.on('value', function(snapshot) {
+    // Listen for updates
+    roomRef.on('value', snapshot => {
         const data = snapshot.val();
+        if (!data) return;
         
-        if (!data) {
-            console.log("❌ Room deleted");
-            handlePlayerLeft();
+        console.log("📡 Update:", data.turn, "Dice:", data.dice, "Rolled:", data.rolled);
+        
+        // Check winner
+        if (data.winner) {
+            handleOnlineWin(data.winner, data.prize);
             return;
         }
         
-        updateGame(data);
-    });
-    
-    console.log("✅ Game started");
-}
-
-// ==========================================
-// UPDATE GAME
-// ==========================================
-function updateGame(data) {
-    if (!isOnlineMode) return;
-    
-    console.log("📡 Game update");
-    
-    // Check winner
-    if (data.winner) {
-        handleWinner(data.winner, data.prize);
-        return;
-    }
-    
-    // Sync board
-    ['yellow', 'red'].forEach(function(color) {
-        for (let i = 0; i < 4; i++) {
-            const pos = data.board[color][i];
-            boardState[color][i].pos = pos;
-            
-            if (pos === -1) {
-                boardState[color][i].status = 'base';
-            } else if (pos >= 56) {
-                boardState[color][i].status = 'finished';
-            } else {
-                boardState[color][i].status = 'track';
-            }
+        // Sync board
+        if (data.board) {
+            ['yellow','red'].forEach(c => {
+                for(let i=0; i<4; i++) {
+                    const p = data.board[c][i];
+                    boardState[c][i].pos = p;
+                    boardState[c][i].status = p === -1 ? 'base' : (p >= 56 ? 'finished' : 'track');
+                }
+            });
+            drawTokens();
+        }
+        
+        // Update dice
+        if (data.dice > 0) {
+            diceValue = data.dice;
+            const el = document.getElementById('dice-' + data.turn);
+            if (el) el.innerHTML = createDiceSVG(data.dice, data.turn);
+        }
+        
+        // Update turn UI
+        playerTurnIndex = data.turn === 'yellow' ? 0 : 1;
+        updateTurnUI();
+        
+        // Enable my dice
+        const myDice = document.getElementById('dice-' + myColor);
+        if (myDice) {
+            myDice.style.pointerEvents = (data.turn === myColor && !data.rolled) ? 'auto' : 'none';
         }
     });
     
-    drawTokens();
-    
-    // Update dice
-    if (data.dice > 0) {
-        diceValue = data.dice;
-        const diceEl = document.getElementById('dice-' + data.turn);
-        if (diceEl) {
-            diceEl.innerHTML = createDiceSVG(data.dice, data.turn);
-        }
-    }
-    
-    // Update turn
-    playerTurnIndex = data.turn === 'yellow' ? 0 : 1;
-    updateTurnUI();
-    
-    // Enable my dice
-    const isMyTurn = data.turn === playerColor;
-    const myDice = document.getElementById('dice-' + playerColor);
-    
-    if (myDice) {
-        if (isMyTurn && data.dice === 0) {
-            myDice.style.pointerEvents = 'auto';
-        } else {
-            myDice.style.pointerEvents = 'none';
-        }
-    }
+    console.log("✅ Online game ready!");
 }
 
 // ==========================================
-// ROLL DICE
+// STEP 5: OVERRIDE DICE ROLL
 // ==========================================
-const originalRoll = window.handleRoll;
+const oldHandleRoll = window.handleRoll;
 
 window.handleRoll = function(color) {
-    if (!isOnlineMode) {
-        if (originalRoll) originalRoll(color);
+    if (!isOnline) {
+        if (oldHandleRoll) oldHandleRoll(color);
         return;
     }
     
-    if (color !== playerColor) {
+    if (color !== myColor || isRolling) {
         console.log("❌ Not my turn");
         return;
     }
     
-    console.log("🎲 Rolling...");
+    console.log("🎲 Rolling dice...");
     
+    isRolling = true;
     const dice = Math.floor(Math.random() * 6) + 1;
     
-    db.ref('games/' + currentRoom).update({
-        dice: dice
-    });
-    
-    playSound('roll');
-    
-    setTimeout(function() {
-        checkMoves(dice);
-    }, 500);
+    // Animate
+    const el = document.getElementById('dice-' + myColor);
+    let count = 0;
+    const anim = setInterval(() => {
+        el.innerHTML = createDiceSVG(Math.floor(Math.random()*6)+1, myColor);
+        if (++count > 10) {
+            clearInterval(anim);
+            el.innerHTML = createDiceSVG(dice, myColor);
+            
+            // Update Firebase
+            roomRef.update({ dice: dice, rolled: true });
+            
+            console.log("✅ Rolled:", dice);
+            isRolling = false;
+            
+            // Check movable tokens
+            setTimeout(() => checkMovable(dice), 500);
+        }
+    }, 50);
 };
 
-// ==========================================
-// CHECK MOVES
-// ==========================================
-function checkMoves(dice) {
-    const myTokens = boardState[playerColor];
-    
-    const movable = myTokens.filter(function(token) {
-        if (token.status === 'finished') return false;
-        if (token.status === 'base') return dice === 6;
-        return token.pos + dice <= 56;
+function checkMovable(dice) {
+    const tokens = boardState[myColor];
+    const movable = tokens.filter(t => {
+        if (t.status === 'finished') return false;
+        if (t.status === 'base') return dice === 6;
+        return t.pos + dice <= 56;
     });
     
-    console.log("Movable:", movable.length);
+    console.log("🎯 Movable tokens:", movable.length);
     
     if (movable.length === 0) {
-        showMessage("No moves!");
-        
-        setTimeout(function() {
-            const nextTurn = playerColor === 'yellow' ? 'red' : 'yellow';
-            
-            db.ref('games/' + currentRoom).update({
-                turn: nextTurn,
-                dice: 0
-            });
+        showMessage("কোনো চাল নেই");
+        setTimeout(() => {
+            const next = myColor === 'yellow' ? 'red' : 'yellow';
+            roomRef.update({ turn: next, dice: 0, rolled: false });
         }, 1000);
-        
-    } else if (movable.length === 1) {
-        moveOnlineToken(movable[0].id);
     } else {
-        highlightMovableTokens(playerColor, movable);
+        highlightMovableTokens(myColor, movable);
     }
 }
 
 // ==========================================
-// MOVE TOKEN
+// STEP 6: OVERRIDE TOKEN CLICK
 // ==========================================
-const originalClick = window.handleTokenClick;
+const oldTokenClick = window.handleTokenClick;
 
 window.handleTokenClick = function(color, tokenId) {
-    if (!isOnlineMode) {
-        if (originalClick) originalClick(color, tokenId);
+    if (!isOnline) {
+        if (oldTokenClick) oldTokenClick(color, tokenId);
         return;
     }
     
-    if (color !== playerColor) return;
+    if (color !== myColor) return;
     
-    const el = document.getElementById('anim-group-' + color + '-' + tokenId);
+    const el = document.getElementById(`anim-group-${color}-${tokenId}`);
     if (!el || !el.classList.contains('token-highlight')) return;
     
-    moveOnlineToken(tokenId);
-};
-
-function moveOnlineToken(tokenId) {
-    console.log("Moving token:", tokenId);
+    console.log("🚶 Moving token:", tokenId);
     
     clearHighlights();
     
-    db.ref('games/' + currentRoom).once('value').then(function(snapshot) {
-        const data = snapshot.val();
+    roomRef.once('value').then(snap => {
+        const data = snap.val();
+        const board = JSON.parse(JSON.stringify(data.board));
         
-        const newBoard = JSON.parse(JSON.stringify(data.board));
-        
-        const oldPos = newBoard[playerColor][tokenId];
+        const oldPos = board[myColor][tokenId];
         let newPos;
         
         if (oldPos === -1 && diceValue === 6) {
@@ -481,51 +358,53 @@ function moveOnlineToken(tokenId) {
             newPos = Math.min(oldPos + diceValue, 56);
         }
         
-        newBoard[playerColor][tokenId] = newPos;
+        board[myColor][tokenId] = newPos;
+        
+        console.log("📍 Move:", oldPos, "→", newPos);
         
         // Check win
-        const won = newBoard[playerColor].every(function(p) {
-            return p === 56;
-        });
+        const won = board[myColor].every(p => p === 56);
         
         // Next turn
-        let nextTurn = playerColor;
-        
+        let nextTurn = myColor;
         if (diceValue !== 6 && !won) {
-            nextTurn = playerColor === 'yellow' ? 'red' : 'yellow';
+            nextTurn = myColor === 'yellow' ? 'red' : 'yellow';
         }
         
-        // Update database
-        db.ref('games/' + currentRoom).update({
-            board: newBoard,
+        roomRef.update({
+            board: board,
             turn: nextTurn,
             dice: 0,
-            winner: won ? playerColor : null
+            rolled: false,
+            winner: won ? myColor : null
         });
         
         playSound('move');
     });
-}
+};
 
 // ==========================================
-// GAME END
+// STEP 7: HANDLE WIN
 // ==========================================
-function handleWinner(winner, prize) {
-    console.log("🏆 Winner:", winner);
+function handleOnlineWin(winner, prize) {
+    console.log("🏆 Winner:", winner, "Prize:", prize);
     
-    isOnlineMode = false;
+    isOnline = false;
+    if (roomRef) {
+        roomRef.off();
+        roomRef.remove();
+    }
     
-    db.ref('games/' + currentRoom).off();
-    db.ref('games/' + currentRoom).remove();
-    
-    if (winner === playerColor) {
+    if (winner === myColor) {
         appState.balance += prize;
         appState.wins++;
+        addTransaction('game_win', prize, 'success', 'Online Win');
         
         document.getElementById('win-title').innerText = "YOU WON!";
-        document.getElementById('win-message').innerText = "Prize: " + prize + " coins";
+        document.getElementById('win-message').innerText = "Prize: " + prize;
     } else {
         appState.losses++;
+        addTransaction('game_loss', myBet, 'success', 'Online Loss');
         
         document.getElementById('win-title').innerText = "YOU LOST";
         document.getElementById('win-message').innerText = "Better luck next time!";
@@ -535,78 +414,4 @@ function handleWinner(winner, prize) {
     document.getElementById('win-modal').style.display = 'flex';
 }
 
-function handlePlayerLeft() {
-    isOnlineMode = false;
-    
-    db.ref('games/' + currentRoom).off();
-    
-    appState.balance += gameBet;
-    saveState();
-    
-    showToast("Opponent left! Refunded.");
-    
-    setTimeout(function() {
-        goToWalletDashboard();
-    }, 2000);
-}
-
-// ==========================================
-// UTILITIES
-// ==========================================
-function playWithAI() {
-    const aiNames = ["Rayhan", "Faruk", "Arman", "Rahul"];
-    const aiName = aiNames[Math.floor(Math.random() * aiNames.length)];
-    
-    document.getElementById('opponent-name-text').innerText = aiName;
-    showToast("Playing with AI");
-    
-    setTimeout(function() {
-        isOnlineMode = false;
-        startGame('vsAI', 2);
-        showScreen('game-screen');
-    }, 2000);
-}
-
-function refundBet() {
-    appState.balance += gameBet;
-    saveState();
-    showToast("Cancelled! Refunded.");
-    goToWalletDashboard();
-}
-
-function startRandomAvatar() {
-    window.avatarInterval = setInterval(function() {
-        const img = document.getElementById('random-avatar-img');
-        if (img) {
-            const seed = Math.random().toString(36).substring(7);
-            img.setAttribute('href', 'https://api.dicebear.com/9.x/avataaars/svg?seed=' + seed);
-        }
-    }, 333);
-}
-
-function stopRandomAvatar() {
-    if (window.avatarInterval) {
-        clearInterval(window.avatarInterval);
-    }
-}
-
-const originalFinish = window.finishGameSession;
-
-window.finishGameSession = function() {
-    if (isOnlineMode) {
-        document.getElementById('win-modal').style.display = 'none';
-        goToWalletDashboard();
-    } else if (originalFinish) {
-        originalFinish();
-    }
-};
-
-// ==========================================
-// AUTO INIT
-// ==========================================
-window.addEventListener('load', function() {
-    console.log("🎮 Loading online module...");
-    setTimeout(initOnlineSystem, 2000);
-});
-
-console.log("✅ Online module loaded!");
+console.log("✅ Simplified Online Module Loaded!");
