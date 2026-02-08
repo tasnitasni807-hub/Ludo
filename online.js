@@ -1,9 +1,8 @@
 // ==========================================
-// LUDO ONLINE - NO AUTHENTICATION AT ALL
-// Pure Database Solution
+// LUDO ONLINE MULTIPLAYER - WORKING VERSION
 // ==========================================
 
-var config = {
+var firebaseConfig = {
   apiKey: "AIzaSyDcQHzGzmXJHdml7j-Ry-tVVAil-KSCyQ4",
   authDomain: "ludo-party-online-65b84.firebaseapp.com",
   databaseURL: "https://ludo-party-online-65b84-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -13,220 +12,211 @@ var config = {
   appId: "1:405003352009:web:9683f995ab60e5f0f2da18"
 };
 
-var db = null;
-var userId = null;
-var userName = null;
-var gameRoom = null;
-var playerColor = null;
-var isOnlineGame = false;
-var gameBet = 0;
+var database = null;
+var playerId = null;
+var playerName = null;
+var roomId = null;
+var myColor = null;
+var onlineMode = false;
+var betAmount = 0;
 
-// ==========================================
-// INIT - NO AUTH
-// ==========================================
-function initOnline() {
-    console.log("🔄 Init Firebase...");
+// Init Firebase
+function initializeFirebase() {
+    console.log("🔄 Initializing...");
     
     if (typeof firebase === 'undefined') {
-        console.log("⏳ Waiting...");
-        setTimeout(initOnline, 1000);
+        console.log("⏳ Waiting for Firebase...");
+        setTimeout(initializeFirebase, 1000);
         return;
     }
     
     try {
-        // Init Firebase
-        if (!firebase.apps || !firebase.apps.length) {
-            firebase.initializeApp(config);
+        if (!firebase.apps || firebase.apps.length === 0) {
+            firebase.initializeApp(firebaseConfig);
         }
         
-        db = firebase.database();
+        database = firebase.database();
         
-        // Generate ID (NO AUTH)
-        userId = localStorage.getItem('player_id');
-        if (!userId) {
-            userId = 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-            localStorage.setItem('player_id', userId);
+        playerId = localStorage.getItem('uid');
+        if (!playerId) {
+            playerId = 'user_' + Date.now() + Math.random().toString(36).substr(2, 6);
+            localStorage.setItem('uid', playerId);
         }
         
-        userName = localStorage.getItem('player_name');
-        if (!userName) {
-            userName = 'Player' + Math.floor(Math.random() * 10000);
-            localStorage.setItem('player_name', userName);
-        }
+        playerName = localStorage.getItem('uname') || 'Player' + Math.floor(Math.random() * 9999);
+        localStorage.setItem('uname', playerName);
         
-        console.log("✅ Firebase OK");
-        console.log("👤 ID:", userId);
+        console.log("✅ Firebase Ready");
+        console.log("👤 User:", playerId);
         
-        showToast("Online Ready!");
+        showToast("Connected!");
         
-        setupPlay();
+        overridePlayButton();
         
-    } catch (e) {
-        console.error("❌ Error:", e);
+    } catch (error) {
+        console.error("❌ Error:", error);
     }
 }
 
-// ==========================================
-// OVERRIDE PLAY
-// ==========================================
-function setupPlay() {
-    var oldPlay = window.playGame;
+// Override Play Button
+function overridePlayButton() {
+    var originalPlay = window.playGame;
     
     window.playGame = function() {
-        if (!db) {
-            console.log("No DB");
-            if (oldPlay) oldPlay();
+        if (!database) {
+            console.log("Database not ready");
+            if (originalPlay) originalPlay();
             return;
         }
         
-        gameBet = currentBet || 100;
+        betAmount = currentBet || 100;
         
-        if (appState.balance < gameBet) {
-            showToast("Low Balance!");
+        if (appState.balance < betAmount) {
+            showToast("Insufficient Balance!");
             return;
         }
         
-        appState.balance -= gameBet;
+        appState.balance -= betAmount;
         saveState();
         
-        findPlayer();
+        startMatchmaking();
     };
 }
 
-// ==========================================
-// FIND PLAYER
-// ==========================================
-function findPlayer() {
-    console.log("🔍 Finding...");
+// Start Matchmaking
+function startMatchmaking() {
+    console.log("🔍 Finding opponent...");
     
     showScreen('screen-matchmaking');
-    document.getElementById('matchmaking-entry').innerText = gameBet;
+    document.getElementById('matchmaking-entry').innerText = betAmount;
     document.getElementById('opponent-name-text').innerText = "Searching...";
     document.getElementById('timer').innerText = "30";
     
-    startAnim();
+    startAvatarAnimation();
     
-    var qRef = db.ref('queue_' + gameBet);
-    var myRef = qRef.child(userId);
+    var queuePath = 'queue_' + betAmount;
+    var queueRef = database.ref(queuePath);
+    var mySlot = queueRef.child(playerId);
     
-    myRef.set({
-        name: userName,
+    mySlot.set({
+        name: playerName,
         time: Date.now()
     });
     
-    var found = false;
+    var matchFound = false;
     
-    qRef.on('value', function(s) {
-        if (found) return;
+    queueRef.on('value', function(snapshot) {
+        if (matchFound) return;
         
-        var d = s.val();
-        if (!d) return;
+        var players = snapshot.val();
+        if (!players) return;
         
-        var ids = Object.keys(d);
-        console.log("👥", ids.length);
+        var playerIds = Object.keys(players);
+        console.log("👥 Players:", playerIds.length);
         
-        if (ids.length >= 2) {
-            ids.sort();
-            var p1 = ids[0];
-            var p2 = ids[1];
+        if (playerIds.length >= 2) {
+            playerIds.sort();
+            var p1 = playerIds[0];
+            var p2 = playerIds[1];
             
-            if (p1 === userId || p2 === userId) {
-                found = true;
+            if (p1 === playerId || p2 === playerId) {
+                matchFound = true;
                 
-                var opp = p1 === userId ? p2 : p1;
-                var oppName = d[opp].name;
+                var opponentId = p1 === playerId ? p2 : p1;
+                var opponentName = players[opponentId].name;
                 
-                console.log("✅ Found:", oppName);
+                console.log("✅ Match found:", opponentName);
                 
-                stopAnim();
-                document.getElementById('opponent-name-text').innerText = oppName;
-                showToast("Match!");
+                stopAvatarAnimation();
+                document.getElementById('opponent-name-text').innerText = opponentName;
+                showToast("Match Found!");
                 
-                qRef.off();
-                myRef.remove();
+                queueRef.off();
+                mySlot.remove();
                 
                 setTimeout(function() {
-                    makeRoom(p1, p2);
+                    createGameRoom(p1, p2);
                 }, 2000);
             }
         }
     });
     
-    var t = 30;
-    var ti = setInterval(function() {
-        t--;
-        document.getElementById('timer').innerText = t < 10 ? '0' + t : t;
+    // Timer
+    var timeLeft = 30;
+    var timer = setInterval(function() {
+        timeLeft--;
+        document.getElementById('timer').innerText = timeLeft < 10 ? '0' + timeLeft : timeLeft;
         
-        if (t <= 0) {
-            clearInterval(ti);
-            if (!found) {
-                stopAnim();
-                qRef.off();
-                myRef.remove();
-                playBot();
+        if (timeLeft <= 0) {
+            clearInterval(timer);
+            
+            if (!matchFound) {
+                stopAvatarAnimation();
+                queueRef.off();
+                mySlot.remove();
+                playWithAI();
             }
         }
     }, 1000);
     
+    // Cancel Button
     document.getElementById('cancelBtn').onclick = function() {
-        clearInterval(ti);
-        stopAnim();
-        qRef.off();
-        myRef.remove();
+        clearInterval(timer);
+        stopAvatarAnimation();
+        queueRef.off();
+        mySlot.remove();
         
-        appState.balance += gameBet;
+        appState.balance += betAmount;
         saveState();
         showToast("Cancelled!");
         goToWalletDashboard();
     };
 }
 
-// ==========================================
-// MAKE ROOM
-// ==========================================
-function makeRoom(p1, p2) {
-    gameRoom = 'r_' + Date.now();
-    playerColor = p1 === userId ? 'yellow' : 'red';
+// Create Game Room
+function createGameRoom(player1, player2) {
+    roomId = 'game_' + Date.now();
+    myColor = player1 === playerId ? 'yellow' : 'red';
     
-    console.log("🏠 Room:", gameRoom);
+    console.log("🏠 Room:", roomId, "Color:", myColor);
     
-    var rRef = db.ref('rooms/' + gameRoom);
+    var roomRef = database.ref('games/' + roomId);
     
-    rRef.set({
+    roomRef.set({
         turn: 'yellow',
         dice: 0,
         board: {
-            yellow: [-1,-1,-1,-1],
-            red: [-1,-1,-1,-1]
+            yellow: [-1, -1, -1, -1],
+            red: [-1, -1, -1, -1]
         },
         winner: null,
-        bet: gameBet,
-        prize: Math.floor(gameBet * 1.9)
+        bet: betAmount,
+        prize: Math.floor(betAmount * 1.9)
     });
     
-    playOnline();
+    startOnlineGame();
 }
 
-// ==========================================
-// PLAY ONLINE
-// ==========================================
-function playOnline() {
-    isOnlineGame = true;
+// Start Online Game
+function startOnlineGame() {
+    console.log("🎮 Starting game...");
+    
+    onlineMode = true;
     gameMode = 'online';
     players = ['yellow', 'red'];
     
     boardState = {
         yellow: [
-            {id:0,pos:-1,status:'base',justSpawned:false},
-            {id:1,pos:-1,status:'base',justSpawned:false},
-            {id:2,pos:-1,status:'base',justSpawned:false},
-            {id:3,pos:-1,status:'base',justSpawned:false}
+            {id: 0, pos: -1, status: 'base', justSpawned: false},
+            {id: 1, pos: -1, status: 'base', justSpawned: false},
+            {id: 2, pos: -1, status: 'base', justSpawned: false},
+            {id: 3, pos: -1, status: 'base', justSpawned: false}
         ],
         red: [
-            {id:0,pos:-1,status:'base',justSpawned:false},
-            {id:1,pos:-1,status:'base',justSpawned:false},
-            {id:2,pos:-1,status:'base',justSpawned:false},
-            {id:3,pos:-1,status:'base',justSpawned:false}
+            {id: 0, pos: -1, status: 'base', justSpawned: false},
+            {id: 1, pos: -1, status: 'base', justSpawned: false},
+            {id: 2, pos: -1, status: 'base', justSpawned: false},
+            {id: 3, pos: -1, status: 'base', justSpawned: false}
         ]
     };
     
@@ -235,231 +225,261 @@ function playOnline() {
     createPlayerHubs();
     drawTokens();
     
-    var rRef = db.ref('rooms/' + gameRoom);
+    var roomRef = database.ref('games/' + roomId);
     
-    rRef.on('value', function(s) {
-        var d = s.val();
-        if (!d) {
-            handleLeft();
+    roomRef.on('value', function(snapshot) {
+        var data = snapshot.val();
+        
+        if (!data) {
+            handleDisconnect();
             return;
         }
-        sync(d);
+        
+        updateGameState(data);
     });
 }
 
-// ==========================================
-// SYNC
-// ==========================================
-function sync(d) {
-    if (!isOnlineGame) return;
+// Update Game State
+function updateGameState(data) {
+    if (!onlineMode) return;
     
-    if (d.winner) {
-        finish(d.winner, d.prize);
+    if (data.winner) {
+        handleWinner(data.winner, data.prize);
         return;
     }
     
-    ['yellow','red'].forEach(function(c) {
+    // Sync board
+    ['yellow', 'red'].forEach(function(color) {
         for (var i = 0; i < 4; i++) {
-            var p = d.board[c][i];
-            boardState[c][i].pos = p;
-            boardState[c][i].status = p === -1 ? 'base' : p >= 56 ? 'finished' : 'track';
+            var pos = data.board[color][i];
+            boardState[color][i].pos = pos;
+            boardState[color][i].status = pos === -1 ? 'base' : pos >= 56 ? 'finished' : 'track';
         }
     });
     
     drawTokens();
     
-    if (d.dice > 0) {
-        diceValue = d.dice;
-        var el = document.getElementById('dice-' + d.turn);
-        if (el) el.innerHTML = createDiceSVG(d.dice, d.turn);
+    // Update dice
+    if (data.dice > 0) {
+        diceValue = data.dice;
+        var diceEl = document.getElementById('dice-' + data.turn);
+        if (diceEl) {
+            diceEl.innerHTML = createDiceSVG(data.dice, data.turn);
+        }
     }
     
-    playerTurnIndex = d.turn === 'yellow' ? 0 : 1;
+    // Update turn
+    playerTurnIndex = data.turn === 'yellow' ? 0 : 1;
     updateTurnUI();
     
-    var myD = document.getElementById('dice-' + playerColor);
-    if (myD) {
-        myD.style.pointerEvents = (d.turn === playerColor && d.dice === 0) ? 'auto' : 'none';
+    var myDice = document.getElementById('dice-' + myColor);
+    if (myDice) {
+        myDice.style.pointerEvents = (data.turn === myColor && data.dice === 0) ? 'auto' : 'none';
     }
 }
 
-// ==========================================
-// ROLL
-// ==========================================
-var oRoll = window.handleRoll;
+// Override Roll
+var originalHandleRoll = window.handleRoll;
 
-window.handleRoll = function(c) {
-    if (!isOnlineGame) {
-        if (oRoll) oRoll(c);
+window.handleRoll = function(color) {
+    if (!onlineMode) {
+        if (originalHandleRoll) originalHandleRoll(color);
         return;
     }
     
-    if (c !== playerColor) return;
+    if (color !== myColor) return;
     
     var dice = Math.floor(Math.random() * 6) + 1;
     
-    db.ref('rooms/' + gameRoom).update({ dice: dice });
+    database.ref('games/' + roomId).update({
+        dice: dice
+    });
     
     playSound('roll');
     
-    setTimeout(function() { checkMove(dice); }, 500);
+    setTimeout(function() {
+        checkMovableTokens(dice);
+    }, 500);
 };
 
-// ==========================================
-// CHECK MOVE
-// ==========================================
-function checkMove(dice) {
-    var tokens = boardState[playerColor];
-    var mov = tokens.filter(function(t) {
-        if (t.status === 'finished') return false;
-        if (t.status === 'base') return dice === 6;
-        return t.pos + dice <= 56;
+// Check Movable Tokens
+function checkMovableTokens(dice) {
+    var tokens = boardState[myColor];
+    var movable = tokens.filter(function(token) {
+        if (token.status === 'finished') return false;
+        if (token.status === 'base') return dice === 6;
+        return token.pos + dice <= 56;
     });
     
-    if (mov.length === 0) {
+    if (movable.length === 0) {
         showMessage("No moves!");
         setTimeout(function() {
-            var next = playerColor === 'yellow' ? 'red' : 'yellow';
-            db.ref('rooms/' + gameRoom).update({ turn: next, dice: 0 });
+            var nextTurn = myColor === 'yellow' ? 'red' : 'yellow';
+            database.ref('games/' + roomId).update({
+                turn: nextTurn,
+                dice: 0
+            });
         }, 1000);
-    } else if (mov.length === 1) {
-        move(mov[0].id);
+    } else if (movable.length === 1) {
+        moveOnlineToken(movable[0].id);
     } else {
-        highlightMovableTokens(playerColor, mov);
+        highlightMovableTokens(myColor, movable);
     }
 }
 
-// ==========================================
-// MOVE
-// ==========================================
-var oClick = window.handleTokenClick;
+// Override Token Click
+var originalHandleTokenClick = window.handleTokenClick;
 
-window.handleTokenClick = function(c, id) {
-    if (!isOnlineGame) {
-        if (oClick) oClick(c, id);
+window.handleTokenClick = function(color, tokenId) {
+    if (!onlineMode) {
+        if (originalHandleTokenClick) originalHandleTokenClick(color, tokenId);
         return;
     }
     
-    if (c !== playerColor) return;
+    if (color !== myColor) return;
     
-    var el = document.getElementById('anim-group-' + c + '-' + id);
+    var el = document.getElementById('anim-group-' + color + '-' + tokenId);
     if (!el || !el.classList.contains('token-highlight')) return;
     
-    move(id);
+    moveOnlineToken(tokenId);
 };
 
-function move(id) {
+// Move Token Online
+function moveOnlineToken(tokenId) {
     clearHighlights();
     
-    db.ref('rooms/' + gameRoom).once('value').then(function(s) {
-        var d = s.val();
-        var b = JSON.parse(JSON.stringify(d.board));
+    database.ref('games/' + roomId).once('value').then(function(snapshot) {
+        var data = snapshot.val();
+        var board = JSON.parse(JSON.stringify(data.board));
         
-        var old = b[playerColor][id];
-        var newP = old === -1 && diceValue === 6 ? 0 : Math.min(old + diceValue, 56);
+        var oldPos = board[myColor][tokenId];
+        var newPos;
         
-        b[playerColor][id] = newP;
+        if (oldPos === -1 && diceValue === 6) {
+            newPos = 0;
+        } else {
+            newPos = Math.min(oldPos + diceValue, 56);
+        }
         
-        var won = b[playerColor].every(function(p) { return p === 56; });
-        var next = (diceValue === 6 || won) ? playerColor : (playerColor === 'yellow' ? 'red' : 'yellow');
+        board[myColor][tokenId] = newPos;
         
-        db.ref('rooms/' + gameRoom).update({
-            board: b,
-            turn: next,
+        var won = board[myColor].every(function(p) {
+            return p === 56;
+        });
+        
+        var nextTurn = myColor;
+        if (diceValue !== 6 && !won) {
+            nextTurn = myColor === 'yellow' ? 'red' : 'yellow';
+        }
+        
+        database.ref('games/' + roomId).update({
+            board: board,
+            turn: nextTurn,
             dice: 0,
-            winner: won ? playerColor : null
+            winner: won ? myColor : null
         });
         
         playSound('move');
     });
 }
 
-// ==========================================
-// FINISH
-// ==========================================
-function finish(w, prize) {
-    isOnlineGame = false;
+// Clear Highlights
+function clearHighlights() {
+    document.querySelectorAll('.token-highlight').forEach(function(el) {
+        el.classList.remove('token-highlight');
+    });
+}
+
+// Handle Winner
+function handleWinner(winner, prize) {
+    console.log("🏆 Winner:", winner);
     
-    db.ref('rooms/' + gameRoom).off();
-    db.ref('rooms/' + gameRoom).remove();
+    onlineMode = false;
     
-    if (w === playerColor) {
+    database.ref('games/' + roomId).off();
+    database.ref('games/' + roomId).remove();
+    
+    if (winner === myColor) {
         appState.balance += prize;
         appState.wins++;
+        
         document.getElementById('win-title').innerText = "YOU WON!";
-        document.getElementById('win-message').innerText = "+" + prize;
+        document.getElementById('win-message').innerText = "Prize: " + prize + " coins";
     } else {
         appState.losses++;
+        
         document.getElementById('win-title').innerText = "YOU LOST";
-        document.getElementById('win-message').innerText = "Try again";
+        document.getElementById('win-message').innerText = "Better luck next time!";
     }
     
     saveState();
     document.getElementById('win-modal').style.display = 'flex';
 }
 
-function handleLeft() {
-    isOnlineGame = false;
-    db.ref('rooms/' + gameRoom).off();
+// Handle Disconnect
+function handleDisconnect() {
+    onlineMode = false;
     
-    appState.balance += gameBet;
+    database.ref('games/' + roomId).off();
+    
+    appState.balance += betAmount;
     saveState();
     
-    showToast("Opponent left!");
-    setTimeout(function() { goToWalletDashboard(); }, 2000);
-}
-
-// ==========================================
-// UTILS
-// ==========================================
-function playBot() {
-    var names = ["Rayhan", "Faruk", "Arman"];
-    var n = names[Math.floor(Math.random() * names.length)];
-    
-    document.getElementById('opponent-name-text').innerText = n;
+    showToast("Opponent left! Refunded.");
     
     setTimeout(function() {
-        isOnlineGame = false;
+        goToWalletDashboard();
+    }, 2000);
+}
+
+// Play with AI
+function playWithAI() {
+    var aiNames = ["Rayhan", "Faruk", "Arman", "Rahul"];
+    var aiName = aiNames[Math.floor(Math.random() * aiNames.length)];
+    
+    document.getElementById('opponent-name-text').innerText = aiName;
+    showToast("Playing with AI");
+    
+    setTimeout(function() {
+        onlineMode = false;
         window.startGame('vsAI', 2);
         showScreen('game-screen');
     }, 2000);
 }
 
-function startAnim() {
-    window.av = setInterval(function() {
+// Avatar Animation
+function startAvatarAnimation() {
+    window.avatarInterval = setInterval(function() {
         var img = document.getElementById('random-avatar-img');
         if (img) {
-            img.setAttribute('href', 'https://api.dicebear.com/9.x/avataaars/svg?seed=' + Math.random());
+            var seed = Math.random().toString(36).substring(7);
+            img.setAttribute('href', 'https://api.dicebear.com/9.x/avataaars/svg?seed=' + seed);
         }
     }, 333);
 }
 
-function stopAnim() {
-    if (window.av) clearInterval(window.av);
+function stopAvatarAnimation() {
+    if (window.avatarInterval) {
+        clearInterval(window.avatarInterval);
+    }
 }
 
-function clearHighlights() {
-    document.querySelectorAll('.token-highlight').forEach(function(e) {
-        e.classList.remove('token-highlight');
-    });
-}
-
-var oFinish = window.finishGameSession;
+// Override Finish Game Session
+var originalFinishGameSession = window.finishGameSession;
 
 window.finishGameSession = function() {
-    if (isOnlineGame) {
+    if (onlineMode) {
         document.getElementById('win-modal').style.display = 'none';
         goToWalletDashboard();
-    } else if (oFinish) {
-        oFinish();
+    } else if (originalFinishGameSession) {
+        originalFinishGameSession();
     }
 };
 
-// ==========================================
-// INIT
-// ==========================================
+// Initialize on Load
 window.addEventListener('load', function() {
-    setTimeout(initOnline, 2000);
+    console.log("🎮 Loading online module...");
+    setTimeout(initializeFirebase, 2000);
 });
 
-console.log("✅ Online Module Loaded!");
+console.log("✅ Online module loaded!");
